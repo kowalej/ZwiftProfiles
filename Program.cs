@@ -1,6 +1,7 @@
 ﻿using CommandLine;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Support.UI;
 using System;
 using System.Diagnostics;
 using System.Threading;
@@ -118,6 +119,10 @@ namespace ZwiftProfiles
             driver.FindElement(By.Id("password")).SendKeys(password);
             driver.FindElement(By.Id("submit-button")).Click();
 
+            // Get current selected units (Imperial / Metric).
+            var se = new SelectElement(driver.FindElement(By.Id("displayUnit")));
+            var so = se.SelectedOption;
+            
             // Set profile to metric.
             driver.FindElement(By.Id("displayUnit")).Click();
             {
@@ -140,6 +145,14 @@ namespace ZwiftProfiles
             string nGenderChild = gender == gender.MALE ? "1" : "2";
             driver.FindElement(By.CssSelector($".form-radio:nth-child({nGenderChild}) > .dummy")).Click();
             Debug.WriteLine($"Gender entry: {nGenderChild}");
+
+            // Reset units to initial.
+            driver.FindElement(By.Id("displayUnit")).Click();
+            {
+                IWebElement dropdown = driver.FindElement(By.Id("displayUnit"));
+                so.Click();
+            }
+            driver.FindElement(By.Id("displayUnit")).Click();
 
             // Submit form.
             driver.FindElement(By.CssSelector(".btn-zwift")).Click();
