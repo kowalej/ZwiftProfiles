@@ -1,6 +1,7 @@
 ﻿using CommandLine;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Firefox;
 using OpenQA.Selenium.Support.UI;
 using System;
 using System.Diagnostics;
@@ -10,10 +11,16 @@ namespace ZwiftProfiles
 {
     class Program
     {
-        enum gender
+        enum Gender
         {
             MALE,
             FEMALE
+        }
+
+        enum Browser
+        {
+            CHROME,
+            FIREFOX
         }
 
         public class Options
@@ -44,19 +51,37 @@ namespace ZwiftProfiles
 
             [Option('e', "executable-path", Required = false, HelpText = "Zwift executable path to launch after profile setup.")]
             public string ExecutablePath { get; set; }
+
+            [Option('b', "browser", Required = false, HelpText = "Which browser to use (Chrome or Firefox).")]
+            public string Browser { get; set; }
         }
 
         private static IWebDriver driver;
 
         static void Main(string[] args)
         {
+            Browser browser;
             float heightCm;
             float weightKg;
-            gender gender;
+            Gender gender;
 
             Parser.Default.ParseArguments<Options>(args)
                 .WithParsed<Options>(o =>
                 {
+                    // Browser.
+                    if (o.Browser.ToLower() == "firefox")
+                    {
+                        browser = Browser.FIREFOX;
+                    }
+                    else if (o.Browser.ToLower() == "chrome")
+                    {
+                        browser = Browser.CHROME;
+                    }
+                    else
+                    {
+                        throw new Exception("Invalid browser (enter Firefox or Chrome).");
+                    }
+
                     // Height.
                     if (o.HeightCm.HasValue) // Metric.
                     {
@@ -91,24 +116,32 @@ namespace ZwiftProfiles
 
                     if (o.Gender.ToLower() == "m")
                     {
-                        gender = gender.MALE;
+                        gender = Gender.MALE;
                     }
                     else if (o.Gender.ToLower() == "f")
                     {
-                        gender = gender.FEMALE;
+                        gender = Gender.FEMALE;
                     }
                     else
                     {
                         throw new Exception("Invalid gender (no spectrum here - enter m or f).");
                     }
 
-                    EditZwiftProfile(o.Username, o.Password, heightCm, weightKg, gender, o.ExecutablePath);
+                    EditZwiftProfile(browser, o.Username, o.Password, heightCm, weightKg, gender, o.ExecutablePath);
                 });
         }
 
-        static void EditZwiftProfile(string username, string password, float heightCm, float weightKg, gender gender, string zwiftExePath = null)
+        static void EditZwiftProfile(Browser browser, string username, string password, float heightCm, float weightKg, Gender gender, string zwiftExePath = null)
         {
-            driver = new ChromeDriver();
+            // Launch Zwift exe if required.
+            if (!string.IsNullOrEmpty(zwiftExePath))
+                Process.Start(zwiftExePath);
+
+            // Determine browser to use.
+            if (browser == Browser.FIREFOX)
+                driver = new FirefoxDriver();
+            else if (browser == Browser.CHROME)
+                driver = new ChromeDriver();
 
             // Set url as the profile page (but we will have to login then get redirected).
             driver.Url = "https://my.zwift.com/profile/edit";
@@ -142,7 +175,7 @@ namespace ZwiftProfiles
             Debug.WriteLine($"Weight entry: {weightKg.ToString()}");
 
             // Set gender nth-child = 1 for male, nth-child=2 for female.
-            string nGenderChild = gender == gender.MALE ? "1" : "2";
+            string nGenderChild = gender == Gender.MALE ? "1" : "2";
             driver.FindElement(By.CssSelector($".form-radio:nth-child({nGenderChild}) > .dummy")).Click();
             Debug.WriteLine($"Gender entry: {nGenderChild}");
 
@@ -162,10 +195,6 @@ namespace ZwiftProfiles
 
             // End session.
             driver.Quit();
-
-            // Launch Zwift exe if required.
-            if (!string.IsNullOrEmpty(zwiftExePath))
-                Process.Start(zwiftExePath);
         }
     }
 }
