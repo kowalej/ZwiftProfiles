@@ -147,10 +147,21 @@ namespace ZwiftProfiles
             driver.Url = "https://my.zwift.com/profile/edit";
             driver.Manage().Window.Maximize();
 
+            // Wait a maximum of 25 seconds while locating elements.
+            driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(25);
+
+            // Wait a maximum of 25 seconds for async Javascript calls.
+            driver.Manage().Timeouts().AsynchronousJavaScript = TimeSpan.FromSeconds(25);
+
+
             // Login to Zwift.
             driver.FindElement(By.Id("username")).SendKeys(username);
             driver.FindElement(By.Id("password")).SendKeys(password);
             driver.FindElement(By.Id("submit-button")).Click();
+
+            // Wait and then refresh to ensure login finishes properly.
+            Thread.Sleep(2000);
+            driver.Navigate().Refresh();
 
             // Get current selected units (Imperial / Metric).
             var se = new SelectElement(driver.FindElement(By.Id("displayUnit")));
