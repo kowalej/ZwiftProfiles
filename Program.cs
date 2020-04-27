@@ -147,21 +147,40 @@ namespace ZwiftProfiles
             driver.Url = "https://my.zwift.com/profile/edit";
             driver.Manage().Window.Maximize();
 
-            // Wait a maximum of 25 seconds while locating elements.
-            driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(25);
+            // Wait a maximum of 2 seconds while locating elements.
+            driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(2);
 
-            // Wait a maximum of 25 seconds for async Javascript calls.
-            driver.Manage().Timeouts().AsynchronousJavaScript = TimeSpan.FromSeconds(25);
-
+            // Wait a maximum of 5 seconds for async Javascript calls.
+            driver.Manage().Timeouts().AsynchronousJavaScript = TimeSpan.FromSeconds(2);
 
             // Login to Zwift.
             driver.FindElement(By.Id("username")).SendKeys(username);
             driver.FindElement(By.Id("password")).SendKeys(password);
             driver.FindElement(By.Id("submit-button")).Click();
 
-            // Wait and then refresh to ensure login finishes properly.
-            Thread.Sleep(2000);
-            driver.Navigate().Refresh();
+            // This sequence is to avoid situations where the page doesn't fully load due to some JavaScript glitch.
+            // There seems to be a bug on the Zwift website which will cause the async loading to hang and in turn not finish rendering the HTML.
+            // The page will only show a loader and not have any of the appropriate fields available.
+            // Therefore we will refresh with a small delay afterwards until we detect our input fields are available.
+            int retries = 0;
+            while (retries < 20)
+            {
+                try
+                {
+                    Thread.Sleep(2000);
+                    driver.FindElement(By.Id("displayUnit"));
+                    break;
+                }
+                catch (NoSuchElementException)
+                {
+                    driver.Navigate().Refresh();
+                    retries += 1;
+                }
+            }
+
+            // Click the stupid cookies consent.
+            driver.FindElement(By.Id("truste-consent-button")).Click();
+            Thread.Sleep(500);
 
             // Get current selected units (Imperial / Metric).
             var se = new SelectElement(driver.FindElement(By.Id("displayUnit")));
