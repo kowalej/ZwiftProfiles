@@ -151,7 +151,7 @@ namespace ZwiftProfiles
             driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(2);
 
             // Wait a maximum of 5 seconds for async Javascript calls.
-            driver.Manage().Timeouts().AsynchronousJavaScript = TimeSpan.FromSeconds(2);
+            driver.Manage().Timeouts().AsynchronousJavaScript = TimeSpan.FromSeconds(5);
 
             // Login to Zwift.
             driver.FindElement(By.Id("username")).SendKeys(username);
@@ -168,10 +168,11 @@ namespace ZwiftProfiles
                 try
                 {
                     Thread.Sleep(2000);
-                    driver.FindElement(By.Id("displayUnit"));
+                    // This is an arbitrary element we know exists in the form.
+                    driver.FindElement(By.CssSelector("input[name='units']:checked"));
                     break;
                 }
-                catch (NoSuchElementException)
+                catch (NoSuchElementException ex)
                 {
                     driver.Navigate().Refresh();
                     retries += 1;
@@ -180,45 +181,49 @@ namespace ZwiftProfiles
 
             // Click the stupid cookies consent.
             driver.FindElement(By.Id("truste-consent-button")).Click();
-            Thread.Sleep(500);
+            Thread.Sleep(2000);
 
             // Get current selected units (Imperial / Metric).
-            var se = new SelectElement(driver.FindElement(By.Id("displayUnit")));
-            var so = se.SelectedOption;
-            
+            var initialUnits = driver.FindElement(By.CssSelector("input[name='units']:checked"));
+            Thread.Sleep(1000);
+
             // Set profile to metric.
-            driver.FindElement(By.Id("displayUnit")).Click();
-            {
-                IWebElement dropdown = driver.FindElement(By.Id("displayUnit"));
-                dropdown.FindElement(By.XPath("//option[. = 'Metric']")).Click();
-            }
-            driver.FindElement(By.Id("displayUnit")).Click();
+            IJavaScriptExecutor js = (IJavaScriptExecutor)driver;
+            js.ExecuteScript("document.querySelector(\"input[name='units'][value='METRIC']\").scrollIntoView()");
+            Thread.Sleep(1000);
+            driver.FindElement(By.CssSelector("input[name='units'][value='METRIC']")).Click();
+            Thread.Sleep(1000);
 
             // Set metric height (cm).
-            driver.FindElement(By.Id("metricHeight")).Clear();
-            driver.FindElement(By.Id("metricHeight")).SendKeys(heightCm.ToString());
+            js.ExecuteScript("document.querySelector(\"input[name='heightCm']\").scrollIntoView()");
+            Thread.Sleep(1000);
+            driver.FindElement(By.Name("heightCm")).Clear();
+            driver.FindElement(By.Name("heightCm")).SendKeys(Math.Round(heightCm).ToString());
             Debug.WriteLine($"Height entry: {heightCm.ToString()}");
 
             // Set metric weight (kg).
-            driver.FindElement(By.Id("metricWeight")).Clear();
-            driver.FindElement(By.Id("metricWeight")).SendKeys(weightKg.ToString());
+            js.ExecuteScript("document.querySelector(\"input[name='weightKg']\").scrollIntoView()");
+            Thread.Sleep(1000);
+            driver.FindElement(By.Name("weightKg")).Clear();
+            driver.FindElement(By.Name("weightKg")).SendKeys(Math.Round(weightKg).ToString());
             Debug.WriteLine($"Weight entry: {weightKg.ToString()}");
 
-            // Set gender nth-child = 1 for male, nth-child=2 for female.
-            string nGenderChild = gender == Gender.MALE ? "1" : "2";
-            driver.FindElement(By.CssSelector($".form-radio:nth-child({nGenderChild}) > .dummy")).Click();
-            Debug.WriteLine($"Gender entry: {nGenderChild}");
+            // Gender disabled as of 2021-03-22 - fuck off Zwift.
+            // // Set gender nth-child = 1 for male, nth-child=2 for female.
+            // string nGenderChild = gender == Gender.MALE ? "1" : "2";
+            // driver.FindElement(By.CssSelector($".form-radio:nth-child({nGenderChild}) > .dummy")).Click();
+            // Debug.WriteLine($"Gender entry: {nGenderChild}");
 
             // Reset units to initial.
-            driver.FindElement(By.Id("displayUnit")).Click();
-            {
-                IWebElement dropdown = driver.FindElement(By.Id("displayUnit"));
-                so.Click();
-            }
-            driver.FindElement(By.Id("displayUnit")).Click();
+            js.ExecuteScript("document.querySelector(\"input[name='units']:unchecked\").scrollIntoView()");
+            Thread.Sleep(1000);
+            initialUnits.Click();
 
+            Thread.Sleep(1000);
             // Submit form.
-            driver.FindElement(By.CssSelector(".btn-zwift")).Click();
+            js.ExecuteScript("document.querySelector(\"//button[text()='Save Changes]\").scrollIntoView()");
+            Thread.Sleep(1000);
+            driver.FindElement(By.XPath("//button[text()='Save Changes']")).Click();
 
             // Wait for save submission complete.
             Thread.Sleep(2000);
