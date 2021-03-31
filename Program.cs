@@ -1,11 +1,12 @@
 ﻿using CommandLine;
 using OpenQA.Selenium;
-using OpenQA.Selenium.Firefox;
 using OpenQA.Selenium.Chrome;
-using OpenQA.Selenium.Support.UI;
 using System;
 using System.Diagnostics;
 using System.Threading;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using RestSharp;
 
 namespace ZwiftProfiles
 {
@@ -15,12 +16,6 @@ namespace ZwiftProfiles
         {
             MALE,
             FEMALE
-        }
-
-        enum Browser
-        {
-            CHROME,
-            FIREFOX
         }
 
         public class Options
@@ -49,18 +44,15 @@ namespace ZwiftProfiles
             [Option('g', "gender", Required = true, HelpText = "Gender (m = male, f = female).")]
             public string Gender { get; set; }
 
+            [Option('w', "ftp", Required = true, HelpText = "FTP (in watts).")]
+            public int? FTPWatts { get; set; }
+
             [Option('e', "executable-path", Required = false, HelpText = "Zwift executable path to launch after profile setup.")]
             public string ExecutablePath { get; set; }
-
-            [Option('b', "browser", Required = false, HelpText = "Which browser to use (Chrome or Firefox).")]
-            public string Browser { get; set; }
         }
-
-        private static IWebDriver driver;
 
         static void Main(string[] args)
         {
-            Browser browser;
             float heightCm;
             float weightKg;
             Gender gender;
@@ -68,20 +60,6 @@ namespace ZwiftProfiles
             Parser.Default.ParseArguments<Options>(args)
                 .WithParsed<Options>(o =>
                 {
-                    // Browser.
-                    if (o.Browser.ToLower() == "firefox")
-                    {
-                        browser = Browser.FIREFOX;
-                    }
-                    else if (o.Browser.ToLower() == "chrome")
-                    {
-                        browser = Browser.CHROME;
-                    }
-                    else
-                    {
-                        throw new Exception("Invalid browser (enter Firefox or Chrome).");
-                    }
-
                     // Height.
                     if (o.HeightCm.HasValue) // Metric.
                     {
@@ -127,25 +105,29 @@ namespace ZwiftProfiles
                         throw new Exception("Invalid gender (no spectrum here - enter m or f).");
                     }
 
-                    EditZwiftProfile(browser, o.Username, o.Password, heightCm, weightKg, gender, o.ExecutablePath);
+                    EditZwiftProfile(o.Username, o.Password, heightCm, weightKg, gender, o.FTPWatts, o.ExecutablePath);
                 });
         }
 
-        static void EditZwiftProfile(Browser browser, string username, string password, float heightCm, float weightKg, Gender gender, string zwiftExePath = null)
+        static void EditZwiftProfile(string username, string password, float heightCm, float weightKg, Gender gender, int? ftpWatts, string zwiftExePath = null)
         {
             // Launch Zwift exe if required.
             if (!string.IsNullOrEmpty(zwiftExePath))
                 Process.Start(zwiftExePath);
 
-            // Determine browser to use.
-            if (browser == Browser.FIREFOX)
-                driver = new FirefoxDriver();
-            else if (browser == Browser.CHROME)
-                driver = new ChromeDriver();
+            // Create ChromeDriver with ability to capture network logs.
+            ChromeOptions options = new ChromeOptions();
+            options.SetLoggingPreference("performance", LogLevel.All);
+            options.AddUserProfilePreference("intl.accept_languages", "en-US");
+            options.AddUserProfilePreference("disable-popup-blocking", "true");
+            options.AddArgument("test-type");
+            options.AddArgument("--disable-gpu");
+            options.AddArgument("no-sandbox");
+            options.AddArgument("start-maximized");
+            IWebDriver driver = new ChromeDriver(options);
 
             // Set url as the profile page (but we will have to login then get redirected).
             driver.Url = "https://my.zwift.com/profile/edit";
-            driver.Manage().Window.Maximize();
 
             // Wait a maximum of 2 seconds while locating elements.
             driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(2);
@@ -172,7 +154,7 @@ namespace ZwiftProfiles
                     driver.FindElement(By.CssSelector("input[name='units']:checked"));
                     break;
                 }
-                catch (NoSuchElementException ex)
+                catch (NoSuchElementException)
                 {
                     driver.Navigate().Refresh();
                     retries += 1;
@@ -183,50 +165,81 @@ namespace ZwiftProfiles
             driver.FindElement(By.Id("truste-consent-button")).Click();
             Thread.Sleep(2000);
 
-            // Get current selected units (Imperial / Metric).
-            var initialUnits = driver.FindElement(By.CssSelector("input[name='units']:checked"));
+            // Change first name to random value so we can submit form.
+            var firstNameE = driver.FindElement(By.Name("firstName"));
+            string firstName = firstNameE.GetAttribute("value");
             Thread.Sleep(1000);
+            firstNameE.SendKeys(Guid.NewGuid().ToString());
 
-            // Set profile to metric.
+            // Submit form (with JS due to glitches with Selenium).
+            // This will force a PUT request to update the profile. We can later find this request in the
+            // network logs and extract the request parameters (auth header, body, full url, etc).
             IJavaScriptExecutor js = (IJavaScriptExecutor)driver;
-            js.ExecuteScript("document.querySelector(\"input[name='units'][value='METRIC']\").scrollIntoView()");
-            Thread.Sleep(1000);
-            driver.FindElement(By.CssSelector("input[name='units'][value='METRIC']")).Click();
-            Thread.Sleep(1000);
+            js.ExecuteScript("document.evaluate(\"//button[text()='Save Changes']\", document, null, XPathResult.ANY_TYPE, null).iterateNext().click()");
 
-            // Set metric height (cm).
-            js.ExecuteScript("document.querySelector(\"input[name='heightCm']\").scrollIntoView()");
-            Thread.Sleep(1000);
-            driver.FindElement(By.Name("heightCm")).Clear();
-            driver.FindElement(By.Name("heightCm")).SendKeys(Math.Round(heightCm).ToString());
-            Debug.WriteLine($"Height entry: {heightCm.ToString()}");
+            // Let request finish.
+            Thread.Sleep(4000);
+            
+            // Extracting the performance logs (i.e. network logs).
+            var logs = driver.Manage().Logs.GetLog("performance");
 
-            // Set metric weight (kg).
-            js.ExecuteScript("document.querySelector(\"input[name='weightKg']\").scrollIntoView()");
-            Thread.Sleep(1000);
-            driver.FindElement(By.Name("weightKg")).Clear();
-            driver.FindElement(By.Name("weightKg")).SendKeys(Math.Round(weightKg).ToString());
-            Debug.WriteLine($"Weight entry: {weightKg.ToString()}");
+            string url = null;
+            string authHeader = null;
+            string body = null;
 
-            // Gender disabled as of 2021-03-22 - fuck off Zwift.
-            // // Set gender nth-child = 1 for male, nth-child=2 for female.
-            // string nGenderChild = gender == Gender.MALE ? "1" : "2";
-            // driver.FindElement(By.CssSelector($".form-radio:nth-child({nGenderChild}) > .dummy")).Click();
-            // Debug.WriteLine($"Gender entry: {nGenderChild}");
+            foreach (var log in logs)
+            {
+                var json = JsonConvert.DeserializeObject<JObject>(log.Message);
+                var urlJ = json.SelectToken("message.params.request.url");
+                var method = json.SelectToken("message.params.request.method");
 
-            // Reset units to initial.
-            js.ExecuteScript("document.querySelector(\"input[name='units']:unchecked\").scrollIntoView()");
-            Thread.Sleep(1000);
-            initialUnits.Click();
+                // Find PUT request to profile.
+                if (urlJ != null && ((string)urlJ).Contains("/api/profiles/me") && method != null && ((string)method) == "PUT") {
+                    url = (string)urlJ;
+                    var authHeaderJ = json.SelectToken("message.params.request.headers.Authorization");
+                    var bodyJ = json.SelectToken("message.params.request.postData");
+                    // Extract token and body.
+                    if (authHeaderJ != null && bodyJ != null) {
+                        authHeader = (string) authHeaderJ;
+                        body = (string) bodyJ;
+                    }
+                }
+            }
 
-            Thread.Sleep(1000);
-            // Submit form.
-            js.ExecuteScript("document.querySelector(\"//button[text()='Save Changes]\").scrollIntoView()");
-            Thread.Sleep(1000);
-            driver.FindElement(By.XPath("//button[text()='Save Changes']")).Click();
+            if (url == null) {
+                throw new Exception("Url could not be found! Exiting immediately.");
+            }
 
-            // Wait for save submission complete.
-            Thread.Sleep(2000);
+            if (authHeader == null) {
+                throw new Exception("Auth token could not be found! Exiting immediately.");
+            }
+            
+            if (body == null) {
+                throw new Exception("Body could not be found! Exiting immediately.");
+            }
+
+            // Modify the original request JSON.
+            var bodyM = JsonConvert.DeserializeObject<dynamic>(body);
+            JsonConvert.SerializeObject(bodyM);
+            bodyM.firstName = firstName; // Fixes name
+            bodyM.height = (int)(heightCm * 10); // mm
+            bodyM.weight = (int)(weightKg * 1000); // grams
+            bodyM.male = gender == Gender.MALE ? true : false;
+            if (ftpWatts.HasValue) {
+                bodyM.ftp = ftpWatts;
+            }
+            
+            // Replay the request with the modified values.
+            var client = new RestClient(url);
+            var request = new RestRequest();
+            request.Body = new RequestBody("application/json", "body", bodyM.ToString());
+            request.AddHeader("Authorization", authHeader);
+            request.AddHeader("Content-Type", "application/json");
+            var response = client.Put(request);
+            if (!response.IsSuccessful) {
+                Debug.Write(response);
+                throw new Exception("Profile update request not successful.");
+            }
 
             // End session.
             driver.Quit();
