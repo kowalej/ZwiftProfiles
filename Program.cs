@@ -168,7 +168,6 @@ namespace ZwiftProfiles
             // Change first name to random value so we can submit form.
             var firstNameE = driver.FindElement(By.Name("firstName"));
             string firstName = firstNameE.GetAttribute("value");
-            Thread.Sleep(1000);
             firstNameE.SendKeys(Guid.NewGuid().ToString());
 
             // Submit form (with JS due to glitches with Selenium).
@@ -220,13 +219,12 @@ namespace ZwiftProfiles
 
             // Modify the original request JSON.
             var bodyM = JsonConvert.DeserializeObject<dynamic>(body);
-            JsonConvert.SerializeObject(bodyM);
             bodyM.firstName = firstName; // Fixes name
             bodyM.height = (int)(heightCm * 10); // mm
             bodyM.weight = (int)(weightKg * 1000); // grams
             bodyM.male = gender == Gender.MALE ? true : false;
             if (ftpWatts.HasValue) {
-                bodyM.ftp = ftpWatts;
+                bodyM.ftp = ftpWatts.Value;
             }
             
             // Replay the request with the modified values.
