@@ -135,10 +135,14 @@ namespace ZwiftProfiles
             // Wait a maximum of 5 seconds for async Javascript calls.
             driver.Manage().Timeouts().AsynchronousJavaScript = TimeSpan.FromSeconds(5);
 
+            // Click the stupid cookies consent.
+            driver.FindElement(By.Id("truste-consent-button")).Click();
+            Thread.Sleep(2000);
+
             // Login to Zwift.
-            driver.FindElement(By.Id("username")).SendKeys(username);
-            driver.FindElement(By.Id("password")).SendKeys(password);
-            driver.FindElement(By.Id("submit-button")).Click();
+            driver.FindElement(By.Id("email-input")).SendKeys(username);
+            driver.FindElement(By.Id("password-input")).SendKeys(password);
+            driver.FindElement(By.CssSelector("button[type='submit']")).Click();
 
             // This sequence is to avoid situations where the page doesn't fully load due to some JavaScript glitch.
             // There seems to be a bug on the Zwift website which will cause the async loading to hang and in turn not finish rendering the HTML.
@@ -160,10 +164,6 @@ namespace ZwiftProfiles
                     retries += 1;
                 }
             }
-
-            // Click the stupid cookies consent.
-            driver.FindElement(By.Id("truste-consent-button")).Click();
-            Thread.Sleep(2000);
 
             // Change first name to random value so we can submit form.
             var firstNameE = driver.FindElement(By.Name("firstName"));
